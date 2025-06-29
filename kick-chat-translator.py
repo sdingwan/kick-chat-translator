@@ -584,7 +584,7 @@ def main():
         print("⚠️ No auth token found. Bot will translate messages but won't post them to chat.")
         print("Add KICK_AUTH_TOKEN to .env file or pass as argument to enable posting.")
         
-    # Check if Azure Translator credentials are provided
+    # Check if Azure Translator credentials are providedd
     if not AZURE_TRANSLATOR_KEY:
         print("⚠️ Azure Translator key not found.")
         print("Please set AZURE_TRANSLATOR_KEY in your .env file.")
