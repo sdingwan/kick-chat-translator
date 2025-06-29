@@ -20,6 +20,7 @@ APP_KEY          = "32cbd69e4b950bf97679"          # Kick's public Pusher key
 CLUSTER          = "us2"                          # Kick's Pusher cluster (us2 = Ohio)
 WS_URL_TEMPLATE  = "wss://ws-{cluster}.pusher.com/app/{key}?protocol=7&client=js&version=7.6.0&flash=false"
 CHANNEL_INFO_URL = "https://kick.com/api/v2/channels/{slug}"
+CHANNEL_INFO_URL_V1 = "https://kick.com/api/v1/channels/{slug}"  # Fallback URL
 CHAT_API_URL_TEMPLATE = "https://kick.com/api/v2/messages/send/{chatroom_id}"
 
 # Azure Translator API setup
@@ -67,10 +68,59 @@ class KickChatTranslator:
         
     def fetch_channel_info(self):
         """Fetch channel information including chatroom ID and broadcaster user ID."""
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; TranslatorBot/1.0)"}
-        resp = requests.get(CHANNEL_INFO_URL.format(slug=self.channel_slug), headers=headers)
-        resp.raise_for_status()
-        data = resp.json()
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "en-US,en;q=0.9",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Referer": f"https://kick.com/{self.channel_slug}",
+            "Origin": "https://kick.com",
+            "Sec-Fetch-Dest": "empty",
+            "Sec-Fetch-Mode": "cors",
+            "Sec-Fetch-Site": "same-origin",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache"
+        }
+        
+        # Try multiple times with delays to handle rate limiting
+        for attempt in range(3):
+            try:
+                print(f"📡 Fetching channel info for {self.channel_slug} (attempt {attempt + 1}/3)")
+                resp = requests.get(CHANNEL_INFO_URL.format(slug=self.channel_slug), headers=headers, timeout=10)
+                resp.raise_for_status()
+                data = resp.json()
+                break
+            except requests.exceptions.HTTPError as e:
+                if e.response.status_code == 403:
+                    print(f"⚠️ 403 Forbidden error (attempt {attempt + 1}/3)")
+                    if attempt < 2:  # Don't sleep on last attempt
+                        print(f"   Waiting {(attempt + 1) * 5} seconds before retry...")
+                        time.sleep((attempt + 1) * 5)
+                    else:
+                        print("❌ V2 API failed. Trying V1 API as fallback...")
+                        # Try V1 API as fallback
+                        try:
+                            resp = requests.get(CHANNEL_INFO_URL_V1.format(slug=self.channel_slug), headers=headers, timeout=10)
+                            resp.raise_for_status()
+                            data = resp.json()
+                            print("✅ V1 API worked as fallback")
+                            break
+                        except Exception as fallback_error:
+                            print(f"❌ V1 API also failed: {fallback_error}")
+                            print("❌ All attempts failed. This might be due to:")
+                            print("   - Kick blocking datacenter/cloud IPs")
+                            print("   - Rate limiting")
+                            print("   - Channel name might be incorrect")
+                            print(f"   - Try accessing https://kick.com/{self.channel_slug} manually to verify")
+                            raise
+                else:
+                    raise
+            except Exception as e:
+                print(f"⚠️ Error fetching channel info: {e}")
+                if attempt < 2:
+                    time.sleep((attempt + 1) * 2)
+                else:
+                    raise
         
         self.chatroom_id = data["chatroom"]["id"]
         self.broadcaster_user_id = data["user"]["id"]
@@ -510,7 +560,8 @@ def main():
         print("   AZURE_TRANSLATOR_KEY=your_subscription_key")
         print("   AZURE_TRANSLATOR_ENDPOINT=your_endpoint")
         print("   AZURE_TRANSLATOR_REGION=your_region")
-        sys.exit(1)
+        print("\n⚠️ Bot will run in READ-ONLY mode (no translations will be posted)")
+        print("Set Azure credentials to enable translation functionality.")
         
     translator = KickChatTranslator(channel_slug, auth_token)
     translator.start()
