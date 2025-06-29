@@ -1,1 +1,1 @@
-worker: python kick-chat-translator.py mhyochi 
+worker: python kick-chat-translator.py 
