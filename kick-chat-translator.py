@@ -67,15 +67,95 @@ class KickChatTranslator:
         
     def fetch_channel_info(self):
         """Fetch channel information including chatroom ID and broadcaster user ID."""
-        headers = {"User-Agent": "Mozilla/5.0 (compatible; TranslatorBot/1.0)"}
-        resp = requests.get(CHANNEL_INFO_URL.format(slug=self.channel_slug), headers=headers)
+        print(f"🔍 Checking channel: {self.channel_slug}")
+        
+        # Try multiple methods to get channel info
+        methods = [
+            self._fetch_via_api,
+            self._fetch_via_manual_config
+        ]
+        
+        for method in methods:
+            try:
+                if method():
+                    return
+            except Exception as e:
+                print(f"⚠️ Method failed: {e}")
+                continue
+        
+        print(f"❌ Could not access channel '{self.channel_slug}' using any method.")
+        print("💡 Possible solutions:")
+        print("   1. Wait a few minutes and try again (Kick may be rate limiting)")
+        print("   2. Try a different channel")
+        print("   3. Use manual configuration (set CHATROOM_ID and BROADCASTER_ID env vars)")
+        sys.exit(1)
+    
+    def _fetch_via_api(self):
+        """Try to fetch channel info via API."""
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/138.0.0.0 Safari/537.36",
+            "Accept": "application/json",
+            "Referer": "https://kick.com/",
+            "Origin": "https://kick.com"
+        }
+        
+        url = CHANNEL_INFO_URL.format(slug=self.channel_slug)
+        resp = requests.get(url, headers=headers, timeout=10)
+        
+        if resp.status_code == 403:
+            error_data = resp.json() if resp.content else {}
+            if "security policy" in error_data.get("error", "").lower():
+                print("🚫 Kick API blocked by security policy - trying alternative method...")
+                return False
+            else:
+                print(f"🚫 Access forbidden to channel '{self.channel_slug}'")
+                return False
+        elif resp.status_code == 404:
+            print(f"❌ Channel '{self.channel_slug}' not found via API")
+            return False
+        elif resp.status_code == 429:
+            print("⏱️ Rate limited by Kick API")
+            return False
+        
         resp.raise_for_status()
         data = resp.json()
         
+        if "chatroom" not in data or "user" not in data:
+            print(f"⚠️ Unexpected API response structure")
+            return False
+        
         self.chatroom_id = data["chatroom"]["id"]
         self.broadcaster_user_id = data["user"]["id"]
-        print(f"📺 Channel: {data['user']['username']} (ID: {self.broadcaster_user_id})")
+        print(f"✅ Channel found via API: {data['user']['username']} (ID: {self.broadcaster_user_id})")
         print(f"💬 Chatroom ID: {self.chatroom_id}")
+        return True
+    
+    def _fetch_via_manual_config(self):
+        """Try to use manual configuration from environment variables."""
+        manual_chatroom_id = os.getenv('CHATROOM_ID')
+        manual_broadcaster_id = os.getenv('BROADCASTER_ID')
+        
+        if manual_chatroom_id and manual_broadcaster_id:
+            self.chatroom_id = int(manual_chatroom_id)
+            self.broadcaster_user_id = int(manual_broadcaster_id)
+            print(f"✅ Using manual configuration:")
+            print(f"💬 Chatroom ID: {self.chatroom_id}")
+            print(f"📺 Broadcaster ID: {self.broadcaster_user_id}")
+            return True
+        
+        # If no manual config, show instructions for finding IDs
+        print(f"❌ No manual configuration found for channel '{self.channel_slug}'")
+        print("💡 Since Kick API is blocked, you need to find the IDs manually:")
+        print("   1. Go to https://kick.com/{} in your browser".format(self.channel_slug))
+        print("   2. Open Developer Tools (F12)")
+        print("   3. Go to Network tab and refresh the page")
+        print("   4. Look for WebSocket connections to 'chatrooms.XXXXX.v2'")
+        print("   5. The XXXXX number is your CHATROOM_ID")
+        print("   6. Look for API calls or page data containing the broadcaster/user ID")
+        print("   7. Set these environment variables:")
+        print("      CHATROOM_ID=your_chatroom_id")
+        print("      BROADCASTER_ID=your_broadcaster_id")
+        return False
         
     def detect_language(self, text: str) -> Optional[str]:
         """Detect the language of the given text."""
