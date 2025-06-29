@@ -1,0 +1,1 @@
+worker: python kick-chat-translator.py $KICK_CHANNEL 
