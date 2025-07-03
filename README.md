@@ -1,6 +1,6 @@
 # 🤖 Kick Chat Translator Bot
 
-A real-time chat translator bot for Kick.com that automatically detects non-English messages and translates them to English using Azure Translator API.
+A real-time chat translator bot for Kick.com that automatically detects non-English messages and translates them to English using Azure Translator API by default. Optionally, you can use Hugging Face models for self-hosted translation.
 
 ## ✨ Features
 
@@ -11,15 +11,19 @@ A real-time chat translator bot for Kick.com that automatically detects non-Engl
 - **Flag emojis**: Shows country flags for detected languages
 - **User mentions**: References the original message author in translations
 - **Loop prevention**: Avoids translating its own messages
+- **Multi-language support**: Supports 40+ languages (Azure) or 200+ (Hugging Face NLLB-200)
+- **Configurable translation backend**: Use Azure or Hugging Face models
 
 ## 🚀 Quick Start
 
-1. **Setup the bot**:
+1. **Install dependencies**:
    ```bash
-   python setup.py
+   pip install -r requirements.txt
    ```
 
-2. **Configure your auth token**:
+2. **Configure your environment**:
+   - Copy `env.example` to `.env` and fill in your credentials.
+   - Or use the setup script (if available):
    ```bash
    python setup_env.py
    ```
@@ -32,51 +36,65 @@ A real-time chat translator bot for Kick.com that automatically detects non-Engl
 ## 📋 Requirements
 
 - Python 3.7+
-- Azure Translator API credentials
+- Azure Translator API credentials (default)
+- Optionally: Hugging Face Transformers for local/self-hosted translation
 - Kick.com account (for posting translations)
 
-## 🔧 Installation
+## 🔧 Installation & Setup
 
 ### 1. Install Dependencies
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Azure Translator Setup
-**🎉 Azure offers 4x more free translation (2M chars/month) and costs 50% less than Google!**
+### 2. Azure Translator Setup (Default)
+**Azure offers 2M free chars/month and is cost-effective for most users.**
 
-See the detailed setup guide in `azure_setup_guide.md`, or quick setup:
+1. Go to [Azure Portal](https://portal.azure.com) and create a Translator resource
+2. Get your subscription key, endpoint, and region
+3. Add them to your `.env` file:
+   ```
+   AZURE_TRANSLATOR_KEY=your_subscription_key
+   AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
+   AZURE_TRANSLATOR_REGION=your_region
+   ```
 
-1. Go to [Azure Portal](https://portal.azure.com) and create a free account
-2. Create a "Translator" resource 
-3. Get your subscription key, endpoint, and region
-4. Add them to your `.env` file
+### 3. Hugging Face Model Setup (Alternative)
+If you want to avoid cloud APIs or need more language coverage, you can use Hugging Face models locally:
 
-### 3. Configure Authentication Token
+- **Recommended for speed and coverage:**
+  - [`facebook/nllb-200-distilled-600M`](https://huggingface.co/facebook/nllb-200-distilled-600M) (200 languages, fast, distilled)
+  - [`Helsinki-NLP/opus-mt-xx-yy`](https://huggingface.co/Helsinki-NLP) (many language pairs, extremely fast)
 
-The easiest way to set up your auth token is using the setup script:
-
+**To use Hugging Face models:**
+1. Install extra dependencies:
 ```bash
-python setup_env.py
-```
+   pip install transformers torch sentencepiece
+   ```
+2. Update your `.env`:
+   ```
+   TRANSLATION_BACKEND=huggingface
+   HF_MODEL_NAME=facebook/nllb-200-distilled-600M  # or your preferred model
+   ```
+3. (You will need to update the code to use Hugging Face if not already implemented.)
 
-This will guide you through creating a `.env` file with your token.
+### 4. Configure Authentication Token
 
-#### Manual .env Setup
 Create a `.env` file in the project directory:
 ```bash
-# .env file
 KICK_AUTH_TOKEN=your_token_here
-
+KICK_CHANNEL=your_channel_slug
 # Azure Translator credentials
 AZURE_TRANSLATOR_KEY=your_subscription_key
 AZURE_TRANSLATOR_ENDPOINT=https://api.cognitive.microsofttranslator.com
 AZURE_TRANSLATOR_REGION=your_region
-
 # Optional customization
 TARGET_LANGUAGE=en
-MIN_MESSAGE_LENGTH=3
-RATE_LIMIT_DELAY=2
+MIN_MESSAGE_LENGTH=1
+RATE_LIMIT_DELAY=0
+TRANSLATION_PREFIX=🌐
+BOT_USERNAME=your_bot_username
+BLACKLISTED_LANGUAGES=af,it,cy,sw,so,pl,ro,fr,no,sv,tl,de,es,id,et,sq,ca,fi,nl,da,vi,pt,hr,sl,hu,sk,lv,lt,cs
 ```
 
 #### Getting Your Kick Auth Token
@@ -94,28 +112,25 @@ RATE_LIMIT_DELAY=2
 
 ### View-Only Mode
 ```bash
-# Monitor XQC's chat and display translations
 python kick-chat-translator.py xqc
-
-# Monitor any channel
-python kick-chat-translator.py trainwreckstv
 ```
 
-### Full Bot Mode
+### Full Bot Mode (Post translations to chat)
 ```bash
-# Post translations to chat
-python kick-chat-translator.py xqc eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9...
+python kick-chat-translator.py xqc <your_auth_token>
 ```
 
 ## 🛠️ Configuration
 
-You can modify these settings in `kick-chat-translator.py`:
+You can modify these settings in `kick-chat-translator.py` or via environment variables:
 
 ```python
 TARGET_LANGUAGE = "en"           # Translate to English
-MIN_MESSAGE_LENGTH = 3           # Don't translate very short messages
+MIN_MESSAGE_LENGTH = 1           # Allow very short messages
 TRANSLATION_PREFIX = "🌐 "       # Prefix for translated messages
-RATE_LIMIT_DELAY = 2             # Seconds between translations
+RATE_LIMIT_DELAY = 0             # No rate limiting by default
+BOT_USERNAME = ""               # Your bot's username to avoid self-translation
+BLACKLISTED_LANGUAGES = set(...)
 ```
 
 ## 📝 Example Output
@@ -130,24 +145,22 @@ RATE_LIMIT_DELAY = 2             # Seconds between translations
 🌐 Translation enabled: Non-English → English
 
 👤 user123 [es]: ¡Hola! ¿Cómo están todos?
-✅ Translation sent: 🌐 🇪🇸 @user123: Hello! How is everyone?
+✅ Translation sent: [by user123] Hello! How is everyone? (es > en)
 
 👤 user456 [fr]: Cette stream est incroyable!
-✅ Translation sent: 🌐 🇫🇷 @user456: This stream is amazing!
+✅ Translation sent: [by user456] This stream is amazing! (fr > en)
 ```
 
 ## 🌍 Supported Languages
 
-The bot automatically detects and translates from many languages including:
-- Spanish (🇪🇸), French (🇫🇷), German (🇩🇪), Italian (🇮🇹)
-- Portuguese (🇵🇹), Russian (🇷🇺), Japanese (🇯🇵), Korean (🇰🇷)
-- Chinese (🇨🇳), Arabic (🇸🇦), Hindi (🇮🇳), Turkish (🇹🇷)
-- And many more...
+- **Azure Translator**: 40+ languages (see [official docs](https://learn.microsoft.com/en-us/azure/ai-services/translator/language-support))
+- **Hugging Face NLLB-200**: 200 languages ([model card](https://huggingface.co/facebook/nllb-200-distilled-600M))
+- **Helsinki-NLP/opus-mt**: 40+ per model (see [Helsinki-NLP hub](https://huggingface.co/Helsinki-NLP))
 
 ## ⚠️ Important Notes
 
-- **Rate Limiting**: The bot waits 2 seconds between translations to avoid spam
-- **Message Length**: Only messages with 3+ characters are translated
+- **Rate Limiting**: The bot can wait between translations to avoid spam (configurable)
+- **Message Length**: Only messages with the configured minimum length are translated
 - **Loop Prevention**: The bot won't translate its own messages
 - **API Costs**: Azure Translator offers 2M free chars/month, then $10/1M chars
 - **Terms of Service**: Make sure bot usage complies with Kick.com's ToS
@@ -167,6 +180,10 @@ The bot automatically detects and translates from many languages including:
 - Make sure you've added AZURE_TRANSLATOR_KEY to your .env file
 - Verify your Azure subscription key is correct
 - Check that your Azure Translator resource is active
+
+### "Model not supported or slow"
+- If you need more languages or want to self-host, use Hugging Face models as described above
+- For fastest translation, use Helsinki-NLP/opus-mt-xx-yy for specific pairs, or NLLB-200 for broad coverage
 
 ## 📄 License
 

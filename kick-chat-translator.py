@@ -11,6 +11,7 @@ import time
 import threading
 from typing import Optional
 from dotenv import load_dotenv
+import re
 
 # Load environment variables from .env file
 load_dotenv()
@@ -29,15 +30,32 @@ AZURE_TRANSLATOR_REGION = os.getenv('AZURE_TRANSLATOR_REGION')  # Your Azure Tra
 
 # Bot configuration - Load from environment variables
 KICK_AUTH_TOKEN = os.getenv('KICK_AUTH_TOKEN')  # Load from .env file
-BROADCASTER_USER_ID = None  # Will be fetched automatically
 TARGET_LANGUAGE = os.getenv('TARGET_LANGUAGE', 'en')  # Translate to English
 MIN_MESSAGE_LENGTH = int(os.getenv('MIN_MESSAGE_LENGTH', '1'))  # Allow very short messages
 TRANSLATION_PREFIX = os.getenv('TRANSLATION_PREFIX', '🌐 ')  # Prefix for translated messages
 RATE_LIMIT_DELAY = int(os.getenv('RATE_LIMIT_DELAY', '0'))  # No rate limiting
 BOT_USERNAME = os.getenv('BOT_USERNAME', '').lower()  # Your bot's username to avoid self-translation
 
-# Languages to skip translating (comma-separated language codes)
-BLACKLISTED_LANGUAGES = set(os.getenv('BLACKLISTED_LANGUAGES', 'af,it,cy,sw,so,pl,ro,fr,no,sv,tl,de,es,id,et,sq,ca,fi,nl,da,vi,pt,hr,sl,hu,sk,lv,lt,cs').split(','))
+# Languages to allow translating (top 20 most spoken, one per country)
+ALLOWED_LANGUAGES = {
+    'zh',   # Chinese (Mandarin)
+    'es',   # Spanish
+    'en',   # English
+    'hi',   # Hindi
+    'ar',   # Arabic
+    'pt',   # Portuguese
+    'ru',   # Russian
+    'ja',   # Japanese
+    'de',   # German
+    'jv',   # Javanese (Indonesia)
+    'tr',   # Turkish
+    'ko',   # Korean
+    'fr',   # French
+    'vi',   # Vietnamese
+    'it',   # Italian
+    'fa',   # Persian (Farsi)
+    'th',   # Thai
+}
 
 # ────────────────────────────────────────────────────────────────────────────────
 
@@ -46,7 +64,6 @@ class KickChatTranslator:
         self.channel_slug = channel_slug
         self.auth_token = auth_token
         self.chatroom_id = None
-        self.broadcaster_user_id = None
         self.azure_translator_key = AZURE_TRANSLATOR_KEY
         self.azure_translator_endpoint = AZURE_TRANSLATOR_ENDPOINT
         self.azure_translator_region = AZURE_TRANSLATOR_REGION
@@ -125,8 +142,7 @@ class KickChatTranslator:
             return False
         
         self.chatroom_id = data["chatroom"]["id"]
-        self.broadcaster_user_id = data["user"]["id"]
-        print(f"✅ Channel found via API: {data['user']['username']} (ID: {self.broadcaster_user_id})")
+        print(f"✅ Channel found via API: {data['user']['username']} (ID: {data['user']['id']})")
         print(f"💬 Chatroom ID: {self.chatroom_id}")
         return True
     
@@ -137,24 +153,11 @@ class KickChatTranslator:
         
         if manual_chatroom_id and manual_broadcaster_id:
             self.chatroom_id = int(manual_chatroom_id)
-            self.broadcaster_user_id = int(manual_broadcaster_id)
             print(f"✅ Using manual configuration:")
             print(f"💬 Chatroom ID: {self.chatroom_id}")
-            print(f"📺 Broadcaster ID: {self.broadcaster_user_id}")
+            print(f"📺 Broadcaster ID: {manual_broadcaster_id}")
             return True
         
-        # If no manual config, show instructions for finding IDs
-        print(f"❌ No manual configuration found for channel '{self.channel_slug}'")
-        print("💡 Since Kick API is blocked, you need to find the IDs manually:")
-        print("   1. Go to https://kick.com/{} in your browser".format(self.channel_slug))
-        print("   2. Open Developer Tools (F12)")
-        print("   3. Go to Network tab and refresh the page")
-        print("   4. Look for WebSocket connections to 'chatrooms.XXXXX.v2'")
-        print("   5. The XXXXX number is your CHATROOM_ID")
-        print("   6. Look for API calls or page data containing the broadcaster/user ID")
-        print("   7. Set these environment variables:")
-        print("      CHATROOM_ID=your_chatroom_id")
-        print("      BROADCASTER_ID=your_broadcaster_id")
         return False
         
     def detect_language(self, text: str) -> Optional[str]:
@@ -170,17 +173,6 @@ class KickChatTranslator:
             if alpha_chars < 1:  # Allow single character words
                 return None
                 
-            # Skip common English words/expressions that might be misdetected
-            english_words = {
-                'nice', 'good', 'bad', 'lol', 'wow', 'yes', 'no', 'ok', 'okay', 'hi', 'hello', 
-                'bye', 'thanks', 'thank', 'you', 'cool', 'great', 'awesome', 'amazing',
-                'kekw', 'poggers', 'pog', 'omegalul', 'lul', 'ez', 'gg', 'wp', 'nt',
-                'morning', 'what', 'how', 'are', 'whats', 'up', 'well', 'time', 'here',
-                'about', 'watch', 'happy', 'streaming', 'breakfast', 'sleep', 'hiiiii'
-            }
-            if clean_text.lower() in english_words:
-                return 'en'  # Force English for these words
-                
             # Skip Kick emotes format [emote:id:name]
             if clean_text.startswith('[emote:') and clean_text.endswith(']'):
                 return 'en'  # Treat emotes as English to skip translation
@@ -189,15 +181,6 @@ class KickChatTranslator:
             detection_text = clean_text.lower() if clean_text.isupper() else clean_text
             lang = detect(detection_text)
             
-            # Additional check: if detected as non-English but text looks English-ish
-            if lang != 'en' and len(clean_text) < 15:
-                # Count English-looking words
-                words = clean_text.lower().split()
-                english_looking = sum(1 for word in words if word in english_words)
-                # Override if most words are in our English words list
-                if len(words) > 0 and english_looking >= len(words) * 0.8:  # 80% or more are English words
-                    return 'en'
-            
             return lang
         except Exception as e:
             print(f"⚠️ Language detection error: {e}")
@@ -205,8 +188,6 @@ class KickChatTranslator:
             
     def clean_text_for_translation(self, text: str) -> str:
         """Clean text by removing emotes and other non-translatable content."""
-        import re
-        
         # Remove Kick emotes [emote:id:name]
         cleaned = re.sub(r'\[emote:\d+:[^\]]+\]', '', text)
         
@@ -366,18 +347,9 @@ class KickChatTranslator:
             print(f"   ⏭️ Skipped: Already in {TARGET_LANGUAGE}")
             return
             
-        # Skip blacklisted languages
-        if detected_lang in BLACKLISTED_LANGUAGES:
-            print(f"   ⏭️ Skipped: Language {detected_lang} is blacklisted")
-            return
-            
-        # Additional check: Don't translate obviously English phrases misdetected as other languages
-        obvious_english_phrases = [
-            'good morning', 'how are you', 'whats up', 'hello', 'hi there',
-            'morning', 'how was your sleep', 'did you sleep well', 'happy streaming'
-        ]
-        if any(phrase in clean_message.lower() for phrase in obvious_english_phrases):
-            print(f"   ⏭️ Skipped: Obvious English phrase misdetected as {detected_lang}")
+        # Only allow top 20 most spoken languages
+        if detected_lang not in ALLOWED_LANGUAGES:
+            print(f"   ⏭️ Skipped: Language {detected_lang} not in allowed list")
             return
         
         # Check if translation is needed
@@ -394,7 +366,6 @@ class KickChatTranslator:
             return
             
         # Create translation message with new format
-        flag, lang_name = self.get_language_info(detected_lang)
         translation_msg = f"[by {username}] {translated} ({detected_lang} > {TARGET_LANGUAGE})"
         
         # Send translation to chat immediately (no artificial delay)
@@ -402,75 +373,6 @@ class KickChatTranslator:
             self.send_chat_message(translation_msg)
             
         threading.Thread(target=send_async, daemon=True).start()
-        
-    def get_language_info(self, lang_code: str) -> tuple:
-        """Get emoji flag and language name for language code."""
-        language_info = {
-            'es': ('🇪🇸', 'Spanish'),
-            'fr': ('🇫🇷', 'French'),
-            'de': ('🇩🇪', 'German'),
-            'it': ('🇮🇹', 'Italian'),
-            'pt': ('🇵🇹', 'Portuguese'),
-            'ru': ('🇷🇺', 'Russian'),
-            'ja': ('🇯🇵', 'Japanese'),
-            'ko': ('🇰🇷', 'Korean'),
-            'zh': ('🇨🇳', 'Chinese'),
-            'ar': ('🇸🇦', 'Arabic'),
-            'hi': ('🇮🇳', 'Hindi'),
-            'tr': ('🇹🇷', 'Turkish'),
-            'pl': ('🇵🇱', 'Polish'),
-            'nl': ('🇳🇱', 'Dutch'),
-            'sv': ('🇸🇪', 'Swedish'),
-            'da': ('🇩🇰', 'Danish'),
-            'no': ('🇳🇴', 'Norwegian'),
-            'fi': ('🇫🇮', 'Finnish'),
-            'th': ('🇹🇭', 'Thai'),
-            'vi': ('🇻🇳', 'Vietnamese'),
-            'uk': ('🇺🇦', 'Ukrainian'),
-            'bg': ('🇧🇬', 'Bulgarian'),
-            'cs': ('🇨🇿', 'Czech'),
-            'sk': ('🇸🇰', 'Slovak'),
-            'hr': ('🇭🇷', 'Croatian'),
-            'sl': ('🇸🇮', 'Slovenian'),
-            'et': ('🇪🇪', 'Estonian'),
-            'lv': ('🇱🇻', 'Latvian'),
-            'lt': ('🇱🇹', 'Lithuanian'),
-            'hu': ('🇭🇺', 'Hungarian'),
-            'ro': ('🇷🇴', 'Romanian'),
-            'el': ('🇬🇷', 'Greek'),
-            'he': ('🇮🇱', 'Hebrew'),
-            'fa': ('🇮🇷', 'Persian'),
-            'ur': ('🇵🇰', 'Urdu'),
-            'bn': ('🇧🇩', 'Bengali'),
-            'ta': ('🇮🇳', 'Tamil'),
-            'te': ('🇮🇳', 'Telugu'),
-            'ml': ('🇮🇳', 'Malayalam'),
-            'kn': ('🇮🇳', 'Kannada'),
-            'gu': ('🇮🇳', 'Gujarati'),
-            'pa': ('🇮🇳', 'Punjabi'),
-            'mr': ('🇮🇳', 'Marathi'),
-            'ne': ('🇳🇵', 'Nepali'),
-            'si': ('🇱🇰', 'Sinhala'),
-            'my': ('🇲🇲', 'Myanmar'),
-            'km': ('🇰🇭', 'Khmer'),
-            'lo': ('🇱🇦', 'Lao'),
-            'ka': ('🇬🇪', 'Georgian'),
-            'am': ('🇪🇹', 'Amharic'),
-            'sw': ('🇰🇪', 'Swahili'),
-            'zu': ('🇿🇦', 'Zulu'),
-            'af': ('🇿🇦', 'Afrikaans'),
-            'is': ('🇮🇸', 'Icelandic'),
-            'mt': ('🇲🇹', 'Maltese'),
-            'cy': ('🏴󠁧󠁢󠁷󠁬󠁳󠁿', 'Welsh'),
-            'ga': ('🇮🇪', 'Irish'),
-            'eu': ('🏴󠁥󠁳󠁰󠁶󠁿', 'Basque'),
-            'ca': ('🏴󠁥󠁳󠁣󠁴󠁿', 'Catalan'),
-            'gl': ('🏴󠁥󠁳󠁧󠁡󠁿', 'Galician'),
-            'id': ('🇮🇩', 'Indonesian'),
-            'ms': ('🇲🇾', 'Malay'),
-            'tl': ('🇵🇭', 'Filipino'),
-        }
-        return language_info.get(lang_code, ('🌍', 'Unknown'))
         
     # WebSocket event handlers
     def on_open(self, ws):
@@ -549,57 +451,29 @@ class KickChatTranslator:
         ws.run_forever()
 
 def main():
-    # Get channel from environment variable (for Railway) or command line argument (for local)
-    channel_slug = os.getenv('KICK_CHANNEL')
-    
-    if not channel_slug and len(sys.argv) >= 2:
-        channel_slug = sys.argv[1]
-    
-    if not channel_slug:
-        print("Usage: python kick-chat-translator.py <channel_slug> [auth_token]")
-        print("\nFor Railway deployment, set KICK_CHANNEL environment variable")
-        print("For local development, pass channel as command line argument")
-        print("\nAuth token options:")
-        print("1. Set KICK_AUTH_TOKEN in .env file (recommended)")
-        print("2. Pass as command line argument")
-        print("\nTo get your auth token:")
-        print("1. Go to kick.com and log in")
-        print("2. Open browser dev tools (F12)")
-        print("3. Go to Network tab")
-        print("4. Send a chat message")
-        print("5. Look for a request to '/chat' and copy the Authorization header")
-        print("6. The token is the part after 'Bearer '")
+    channel = os.getenv("KICK_CHANNEL")
+    if not channel and len(sys.argv) >= 2:
+        channel = sys.argv[1]
+    if not channel:
+        print("Usage: python kick-chat-translator.py <channel> [auth_token]")
         sys.exit(1)
-    
-    # Try to get auth token from command line argument, then from .env file
+
     auth_token = None
-    if len(sys.argv) > 2:
+    if len(sys.argv) >= 3:
         auth_token = sys.argv[2]
-        print("🔑 Using auth token from command line argument")
     elif KICK_AUTH_TOKEN:
         auth_token = KICK_AUTH_TOKEN
-        print("🔑 Using auth token from .env file")
-    
-    if not auth_token:
-        print("⚠️ No auth token found. Bot will translate messages but won't post them to chat.")
-        print("Add KICK_AUTH_TOKEN to .env file or pass as argument to enable posting.")
-        
-    # Check if Azure Translator credentials are providedd
+
+    if auth_token:
+        print("🗝️  Auth token provided – translations will be posted to chat.")
+    else:
+        print("👀 No auth token – read-only mode.")
+
     if not AZURE_TRANSLATOR_KEY:
-        print("⚠️ Azure Translator key not found.")
-        print("Please set AZURE_TRANSLATOR_KEY in your .env file.")
-        print("\nTo get Azure Translator credentials:")
-        print("1. Go to Azure Portal (portal.azure.com)")
-        print("2. Create a Translator resource")
-        print("3. Get the subscription key and endpoint from the resource")
-        print("4. Add them to your .env file:")
-        print("   AZURE_TRANSLATOR_KEY=your_subscription_key")
-        print("   AZURE_TRANSLATOR_ENDPOINT=your_endpoint")
-        print("   AZURE_TRANSLATOR_REGION=your_region")
+        print("⚠️ Azure Translator key not found. Please set AZURE_TRANSLATOR_KEY in your .env file.")
         sys.exit(1)
-        
-    print(f"🎯 Target channel: {channel_slug}")
-    translator = KickChatTranslator(channel_slug, auth_token)
+
+    translator = KickChatTranslator(channel, auth_token)
     translator.start()
 
 if __name__ == "__main__":
