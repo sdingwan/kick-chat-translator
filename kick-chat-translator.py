@@ -54,6 +54,16 @@ ALLOWED_LANGUAGES = {
     'th',   # Thai
 }
 
+# Common English chat phrases to skip translation
+COMMON_ENGLISH_PHRASES = {
+    'lol', 'gg', 'wp', 'ez', 'kekw', 'pog', 'poggers', 'omegalul', 'lul', 'xd', 'lmao',
+    'rofl', 'wtf', 'brb', 'afk', 'hi', 'hello', 'bye', 'thanks', 'thank you', 'ok', 'okay',
+    'nice', 'good', 'bad', 'cool', 'great', 'awesome', 'amazing', 'wow', 'yes', 'no',
+    'yo', 'sup', 'yo!', 'yo.', 'yo?', 'yo~', 'yo-', 'yo_', 'yo,', 'yo;', 'yo:', 'yo!',
+    'hii', 'hiii', 'hiiii', 'hiiiii', 'hi!', 'hi.', 'hi,', 'hi;', 'hi:', 'hi~', 'hi-', 'hi_',
+    'bye!', 'bye.', 'bye,', 'bye;', 'bye:', 'bye~', 'bye-', 'bye_',
+}
+
 # ────────────────────────────────────────────────────────────────────────────────
 
 class KickChatTranslator:
@@ -330,6 +340,16 @@ class KickChatTranslator:
         # Clean message for language detection (remove emotes)
         clean_message = self.clean_text_for_translation(message)
         if not clean_message:
+            return
+            
+        # Skip common English chat phrases
+        if clean_message.lower() in COMMON_ENGLISH_PHRASES:
+            print(f"   ⏭️ Skipped: Common English phrase '{clean_message}'")
+            return
+            
+        # Skip messages that start with '!'
+        if clean_message.startswith('!'):
+            print(f"   ⏭️ Skipped: Command message '{clean_message}'")
             return
             
         # Detect language
