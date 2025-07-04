@@ -31,7 +31,7 @@ AZURE_TRANSLATOR_REGION = os.getenv('AZURE_TRANSLATOR_REGION')  # Your Azure Tra
 # Bot configuration - Load from environment variables
 KICK_AUTH_TOKEN = os.getenv('KICK_AUTH_TOKEN')  # Load from .env file
 TARGET_LANGUAGE = os.getenv('TARGET_LANGUAGE', 'en')  # Translate to English
-MIN_MESSAGE_LENGTH = int(os.getenv('MIN_MESSAGE_LENGTH', '1'))  # Allow very short messages
+MIN_MESSAGE_LENGTH = int(os.getenv('MIN_MESSAGE_LENGTH', '2'))  # Allow very short messages
 TRANSLATION_PREFIX = os.getenv('TRANSLATION_PREFIX', '🌐 ')  # Prefix for translated messages
 RATE_LIMIT_DELAY = int(os.getenv('RATE_LIMIT_DELAY', '0'))  # No rate limiting
 BOT_USERNAME = os.getenv('BOT_USERNAME', '').lower()  # Your bot's username to avoid self-translation
