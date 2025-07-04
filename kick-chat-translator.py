@@ -43,7 +43,6 @@ ALLOWED_LANGUAGES = {
     'en',   # English
     'hi',   # Hindi
     'ar',   # Arabic
-    'pt',   # Portuguese
     'ru',   # Russian
     'ja',   # Japanese
     'de',   # German
@@ -52,8 +51,6 @@ ALLOWED_LANGUAGES = {
     'ko',   # Korean
     'fr',   # French
     'vi',   # Vietnamese
-    'it',   # Italian
-    'fa',   # Persian (Farsi)
     'th',   # Thai
 }
 
