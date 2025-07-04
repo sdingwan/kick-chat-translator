@@ -40,7 +40,6 @@ BOT_USERNAME = os.getenv('BOT_USERNAME', '').lower()  # Your bot's username to a
 ALLOWED_LANGUAGES = {
     'zh',   # Chinese (Mandarin)
     'es',   # Spanish
-    'en',   # English
     'hi',   # Hindi
     'ar',   # Arabic
     'ru',   # Russian
@@ -364,8 +363,11 @@ class KickChatTranslator:
             print(f"   ⏭️ Skipped: Already in {TARGET_LANGUAGE}")
             return
             
-        # Only allow top 20 most spoken languages
-        if detected_lang not in ALLOWED_LANGUAGES:
+        # Only allow top 20 most spoken languages (allow regional variants)
+        if not any(
+            detected_lang == lang or detected_lang.startswith(f"{lang}-")
+            for lang in ALLOWED_LANGUAGES
+        ):
             print(f"   ⏭️ Skipped: Language {detected_lang} not in allowed list")
             return
         
