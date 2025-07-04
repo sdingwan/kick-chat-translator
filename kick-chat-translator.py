@@ -12,6 +12,7 @@ import threading
 from typing import Optional
 from dotenv import load_dotenv
 import re
+import unicodedata
 
 # Load environment variables from .env file
 load_dotenv()
@@ -202,6 +203,13 @@ class KickChatTranslator:
         
         return cleaned.strip()
     
+    def normalize_text(self, text: str) -> str:
+        """Normalize text for comparison: lowercase, remove accents, strip whitespace."""
+        text = text.lower().strip()
+        text = unicodedata.normalize('NFKD', text)
+        text = ''.join(c for c in text if not unicodedata.combining(c))
+        return text
+    
     def translate_text(self, text: str, source_lang: str) -> Optional[str]:
         """Translate text from source language to target language using Azure Translator."""
         try:
@@ -342,8 +350,8 @@ class KickChatTranslator:
             return
             
         # Skip common English chat phrases
-        if clean_message.lower() in COMMON_ENGLISH_PHRASES:
-            print(f"   ⏭️ Skipped: Common English phrase '{clean_message}'")
+        if is_mostly_common_english(clean_message):
+            print(f"   ⏭️ Skipped: Message is only common English phrases")
             return
             
         # Skip messages that start with '!'
@@ -382,6 +390,11 @@ class KickChatTranslator:
         # Translate the cleaned message
         translated = self.translate_text(clean_message, detected_lang)
         if not translated:
+            return
+            
+        # Skip if translation is essentially the same as the original
+        if is_redundant_translation(clean_message, translated):
+            print(f"   ⏭️ Skipped: Translation is redundant (same as original)")
             return
             
         # Create translation message with new format
@@ -468,6 +481,21 @@ class KickChatTranslator:
             print("⚠️ No auth token - will only display translations (not post them)")
             
         ws.run_forever()
+
+def is_mostly_common_english(msg: str) -> bool:
+    words = re.findall(r"\b\w+\b", msg.lower())
+    if not words:
+        return False
+    common_count = sum(word in COMMON_ENGLISH_PHRASES for word in words)
+    return common_count >= len(words) - 0
+
+def is_redundant_translation(original: str, translated: str) -> bool:
+    def normalize(s):
+        s = s.strip().lower()
+        s = unicodedata.normalize('NFKD', s)
+        s = ''.join(c for c in s if not unicodedata.combining(c))
+        return s
+    return normalize(original) == normalize(translated)
 
 def main():
     channel = os.getenv("KICK_CHANNEL")
