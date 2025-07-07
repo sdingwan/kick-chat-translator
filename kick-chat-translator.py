@@ -59,9 +59,7 @@ COMMON_ENGLISH_PHRASES = {
     'lol', 'gg', 'wp', 'ez', 'kekw', 'pog', 'poggers', 'omegalul', 'lul', 'xd', 'lmao',
     'rofl', 'wtf', 'brb', 'afk', 'hi', 'hello', 'bye', 'thanks', 'thank you', 'ok', 'okay',
     'nice', 'good', 'bad', 'cool', 'great', 'awesome', 'amazing', 'wow', 'yes', 'no',
-    'yo', 'sup', 'yo!', 'yo.', 'yo?', 'yo~', 'yo-', 'yo_', 'yo,', 'yo;', 'yo:', 'yo!',
-    'hii', 'hiii', 'hiiii', 'hiiiii', 'hi!', 'hi.', 'hi,', 'hi;', 'hi:', 'hi~', 'hi-', 'hi_',
-    'bye!', 'bye.', 'bye,', 'bye;', 'bye:', 'bye~', 'bye-', 'bye_',
+    'yo', 'sup', 'yes', 'yea', 'yeah', 'hii', 'hiii','bye',
 }
 
 # ────────────────────────────────────────────────────────────────────────────────
